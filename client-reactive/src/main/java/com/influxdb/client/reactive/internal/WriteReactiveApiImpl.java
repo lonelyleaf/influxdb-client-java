@@ -32,7 +32,6 @@ import javax.annotation.Nullable;
 
 import com.influxdb.Arguments;
 import com.influxdb.client.InfluxDBClientOptions;
-import com.influxdb.client.WriteOptions;
 import com.influxdb.client.domain.WritePrecision;
 import com.influxdb.client.internal.AbstractWriteClient;
 import com.influxdb.client.internal.AbstractWriteClient.BatchWriteData;
@@ -40,14 +39,13 @@ import com.influxdb.client.internal.AbstractWriteClient.BatchWriteDataMeasuremen
 import com.influxdb.client.internal.AbstractWriteClient.BatchWriteDataPoint;
 import com.influxdb.client.internal.AbstractWriteClient.BatchWriteDataRecord;
 import com.influxdb.client.internal.MeasurementMapper;
+import com.influxdb.client.reactive.WriteOptionsReactive;
 import com.influxdb.client.reactive.WriteReactiveApi;
 import com.influxdb.client.service.WriteService;
 import com.influxdb.client.write.Point;
 import com.influxdb.internal.AbstractRestClient;
 
 import io.reactivex.Flowable;
-import io.reactivex.Scheduler;
-import io.reactivex.schedulers.Schedulers;
 import org.reactivestreams.Publisher;
 import retrofit2.HttpException;
 
@@ -58,12 +56,12 @@ public class WriteReactiveApiImpl extends AbstractRestClient implements WriteRea
 
     private static final Logger LOG = Logger.getLogger(WriteReactiveApi.class.getName());
 
-    private final WriteOptions writeOptions;
+    private final WriteOptionsReactive writeOptions;
     private final InfluxDBClientOptions options;
     private final WriteService service;
     private final MeasurementMapper measurementMapper = new MeasurementMapper();
 
-    WriteReactiveApiImpl(@Nonnull final WriteOptions writeOptions,
+    WriteReactiveApiImpl(@Nonnull final WriteOptionsReactive writeOptions,
                          @Nonnull final WriteService service,
                          @Nonnull final InfluxDBClientOptions options) {
 
@@ -245,18 +243,13 @@ public class WriteReactiveApiImpl extends AbstractRestClient implements WriteRea
         Arguments.checkNotNull(precision, "precision");
         Arguments.checkNotNull(stream, "stream");
 
-        //
-        // TODO scheduler
-        //
-        Scheduler scheduler = Schedulers.computation();
-
         Flowable<String> batches = stream
                 //
                 // Create batches
                 //
                 .window(writeOptions.getFlushInterval(),
                         TimeUnit.MILLISECONDS,
-                        scheduler,
+                        writeOptions.getComputationScheduler(),
                         writeOptions.getBatchSize(),
                         true)
                 //
@@ -285,7 +278,7 @@ public class WriteReactiveApiImpl extends AbstractRestClient implements WriteRea
                 //
                 // Jitter
                 //
-                .compose(AbstractWriteClient.jitter(scheduler, writeOptions))
+                .compose(AbstractWriteClient.jitter(writeOptions.getComputationScheduler(), writeOptions))
                 //
                 // HTTP post
                 //
@@ -306,18 +299,21 @@ public class WriteReactiveApiImpl extends AbstractRestClient implements WriteRea
                 //
                 // Retry
                 //
-                .retryWhen(AbstractWriteClient.retry(scheduler, writeOptions, (throwable, retryInterval) -> {
-                    String msg = MessageFormat.format(
-                            "The retriable error occurred during writing of data. Retry in: {0}s.",
-                            (double) retryInterval / 1000);
-                    LOG.log(Level.WARNING, msg, throwable);
-                }))
+                .retryWhen(AbstractWriteClient.retry(
+                        writeOptions.getComputationScheduler(),
+                        writeOptions,
+                        (throwable, retryInterval) -> {
+                            String msg = MessageFormat.format(
+                                    "The retriable error occurred during writing of data. Retry in: {0}s.",
+                                    (double) retryInterval / 1000);
+                            LOG.log(Level.WARNING, msg, throwable);
+                        }))
                 //
                 // maxRetryTime timeout
                 //
                 .timeout(writeOptions.getMaxRetryTime(),
                         TimeUnit.MILLISECONDS,
-                        scheduler,
+                        writeOptions.getComputationScheduler(),
                         Flowable.error(new TimeoutException("Max retry time exceeded.")))
                 //
                 // Map to Influx Error
