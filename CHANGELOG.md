@@ -1,4 +1,14 @@
-## 3.2.0 [unreleased]
+## 4.0.0 [unreleased]
+
+### Breaking Changes
+                           
+#### influxdb-client-reactive
+
+1. The public API uses [Reactive Streams](http://www.reactive-streams.org/)
+1. The [WriteReactiveApi](client-reactive/src/main/java/com/influxdb/client/reactive/WriteReactiveApi.java) is cold Publisher - no request to InfluxDB is trigger until register a subscription to `Publisher`.
+
+### Features
+1. [#251](https://github.com/influxdata/influxdb-client-java/pull/251): Client uses `Reactive Streams` in public API, `WriteReactiveApi` is cold `Publisher` [influxdb-client-reactive]
 
 ### Bug Fixes
 1. [#252](https://github.com/influxdata/influxdb-client-java/pull/252): Spring auto-configuration works even without `influxdb-client-reactive` [spring]
